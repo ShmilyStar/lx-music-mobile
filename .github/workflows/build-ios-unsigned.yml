@@ -3,6 +3,10 @@
 #  无需自有 Mac：由 GitHub 托管的 macOS runner 完成原生编译。
 #  免费公开仓库可使用 macOS runner（公开仓库 Actions 分钟数免费）。
 #
+#  ⚠️ 关键修复：React Native 0.73.11 只兼容 Xcode 15 / iOS 17 SDK。
+#     之前用 macos-latest（Xcode 26 / iOS 26 SDK）会因 libc++/clang 过新
+#     在编译 React-Fabric / RCT-Folly / fmt 时硬报错。这里固定到 Xcode 15。
+#
 #  使用方法：
 #   1) 把本文件放到你的仓库（或上游 fork）的 .github/workflows/ 下
 #   2) 在 GitHub 仓库 → Actions → 选中本工作流 → Run workflow
@@ -18,8 +22,20 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    # macos-14 自带 Xcode 15.x；再用 setup-xcode 显式锁定到 15 大版本，
+    # 避免镜像默认 Xcode 版本被升级到不兼容的 16/26。
+    runs-on: macos-14
     steps:
+      - name: Select Xcode 15
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15'
+
+      - name: Show Xcode / SDK versions (debug)
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep iphoneos || true
+
       - name: Checkout lx-music-mobile v1.9.0
         uses: actions/checkout@v4
         with:
@@ -57,6 +73,10 @@ jobs:
       - name: Package unsigned IPA
         run: |
           APP=$(find build/LxMusicMobile.xcarchive/Products/Applications -name '*.app' | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::未找到 .app，归档失败，请查看上方 xcodebuild 日志"
+            exit 1
+          fi
           mkdir Payload && cp -R "$APP" Payload/
           zip -r -y lx-music-mobile-1.9.0-unsigned.ipa Payload
           rm -rf Payload
