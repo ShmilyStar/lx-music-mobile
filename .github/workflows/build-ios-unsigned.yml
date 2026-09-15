@@ -1,0 +1,68 @@
+# ============================================================
+#  GitHub Actions：构建 lx-music-mobile v1.9.0 的【未签名】iOS IPA
+#  无需自有 Mac：由 GitHub 托管的 macOS runner 完成原生编译。
+#  免费公开仓库可使用 macOS runner（公开仓库 Actions 分钟数免费）。
+#
+#  使用方法：
+#   1) 把本文件放到你的仓库（或上游 fork）的 .github/workflows/ 下
+#   2) 在 GitHub 仓库 → Actions → 选中本工作流 → Run workflow
+#   3) 构建完成后在 Artifacts 中下载 lx-music-mobile-unsigned-ipa
+#   4) 按 SIDELOAD.md 用 AltStore / Sideloadly 重签名后安装到 iPhone
+# ============================================================
+name: Build lx-music-mobile iOS (unsigned IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ build-ios ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout lx-music-mobile v1.9.0
+        uses: actions/checkout@v4
+        with:
+          repository: lyswhut/lx-music-mobile
+          ref: v1.9.0
+          fetch-depth: 1
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods
+
+      - name: Install JS dependencies
+        run: npm install
+
+      - name: Install iOS Pods
+        run: cd ios && pod install && cd ..
+
+      - name: Archive (unsigned, CODE_SIGNING_ALLOWED=NO)
+        run: |
+          xcodebuild archive \
+            -workspace ios/LxMusicMobile.xcworkspace \
+            -scheme LxMusicMobile \
+            -configuration Release \
+            -archivePath build/LxMusicMobile.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PRODUCT_BUNDLE_IDENTIFIER=com.lxmusic.mobile \
+            ONLY_ACTIVE_ARCH=NO ARCHS=arm64 VALID_ARCHS=arm64
+
+      - name: Package unsigned IPA
+        run: |
+          APP=$(find build/LxMusicMobile.xcarchive/Products/Applications -name '*.app' | head -1)
+          mkdir Payload && cp -R "$APP" Payload/
+          zip -r -y lx-music-mobile-1.9.0-unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx-music-mobile-unsigned-ipa
+          path: lx-music-mobile-1.9.0-unsigned.ipa
